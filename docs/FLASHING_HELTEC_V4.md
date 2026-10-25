@@ -7,7 +7,7 @@
 | Situation | File | Flash offset | Preserves current identities/settings? |
 | --- | --- | --- | --- |
 | Already running compatible Mesh Loader dual-boot; want BLE fix | `heltec-v4-meshcore-v1.18.0-blefix-test1.bin` | `0xA0000` | Intended to, provided partitions and storage formats match. Back up first. |
-| Fresh/empty board, or willing to reset **everything** | `heltec-v4-full-dualboot-blefix-experimental.bin` (assemble below) | `0x0` | **NO.** The entire 16 MB image overwrites previous firmware, identities, keys, contacts, and settings. |
+| Fresh/empty board, or willing to reset **everything** | `heltec-v4-full-dualboot-blefix-experimental-merged.bin` (download from the full-installer prerelease) | `0x0` | **NO.** The entire 16 MB image overwrites previous firmware, identities, keys, contacts, and settings. |
 | Only want a MeshCore repeater | Official MeshCore **repeater** firmware | Not covered here | Mesh Loader's MeshCore build is a **BLE companion**, not a repeater. |
 
 ### What exactly is the “bootloader”?
@@ -109,15 +109,34 @@ python -m esptool --chip esp32s3 --port $Port --baud 115200 write_flash 0xA0000 
 
 Look for `Hash of data verified`. Reset normally; test MeshCore → reset → Mesh Loader → Meshtastic → reset → Mesh Loader → MeshCore. Forget the **old MeshCore** Bluetooth bond on the phone once if needed, then pair again. Meshtastic should keep its own pairing.
 
-## B. Fresh dual-boot installation, including both bootloaders (DESTRUCTIVE)
+## B. Fresh dual-boot installation, including the ESP bootloader and Mesh Loader (DESTRUCTIVE)
 
 **This path erases existing MeshCore/Meshtastic identities, keys, and configuration.** Export app identities/settings **and** take a private full-flash backup first, exactly as described above. Even if the board seems blank, treat it as potentially configured.
 
 As of this guide, the full merged image incorporating the BLE fix is **not yet hardware-tested**. Do not distribute it as a production/stable release. Start with a spare Heltec V4 and verify both applications before inviting wider testing.
 
-### Prepare the complete fresh-install image (without compiling Meshtastic)
+### Easy installation — MeshCore Web Flasher (recommended)
 
-Download two **public distribution binaries** into one folder (never use another device's flash readback as a release input):
+**Experimental prerelease — the complete merged firmware has not been boot-tested on a fresh board. Start with a spare Heltec V4.** This is a destructive fresh installation, **not** an upgrade. If already using Mesh Loader, see section A instead.
+
+1. **Back up your existing device**, using the private 16 MB `read_flash` command in section A. Save identity/key exports as well. The web flasher does not back up your device.
+2. Download **[`heltec-v4-full-dualboot-blefix-experimental-merged.bin`](https://github.com/jangelor/mesh-loader/releases/download/heltec-v4-dualboot-blefix-test1/heltec-v4-full-dualboot-blefix-experimental-merged.bin)** and **[SHA256SUMS.txt](https://github.com/jangelor/mesh-loader/releases/download/heltec-v4-dualboot-blefix-test1/SHA256SUMS.txt)** from the [full-installer experimental prerelease](https://github.com/jangelor/mesh-loader/releases/tag/heltec-v4-dualboot-blefix-test1).
+3. Verify the downloaded image. On macOS/Linux, from the directory containing both files: `shasum -a 256 -c SHA256SUMS.txt`. On Windows PowerShell, run `(Get-FileHash .\heltec-v4-full-dualboot-blefix-experimental-merged.bin -Algorithm SHA256).Hash` and compare the result to the SHA-256 below.
+4. Open **[MeshCore Web Flasher](https://flasher.meshcore.io/)** using **Chrome or Edge on a desktop computer** (Web Serial is required).
+5. Select **Custom Firmware** and choose the downloaded file. Connect the Heltec V4 using a **USB data cable**. If needed, enter download mode: hold **PRG**, tap **RST**, then release **PRG**.
+6. **Ensure the site detects a merged image and displays its erase warning.** The current MeshCore web flasher uses the `-merged.bin` filename suffix to select flash offset `0x0`. **If the merged-image warning does not appear, stop** rather than risk writing to the wrong address.
+7. Proceed through the flasher prompts. After completion, reset the board and check Mesh Loader, both firmware modes, Bluetooth pairing, return-to-loader behavior, and RF transmit/receive.
+
+Full image SHA-256: `37ac1100a6896964ff7288579033260377c6b925092af1d2bef4efc4f45b4fa1`
+
+**Important:** Do **not** use the MeshCore Web Flasher's generic custom-image flow for this project's *application-only* BLE fix. Non-merged custom images use the flasher's ordinary `0x10000` address, whereas this project's MeshCore dual-boot application requires **`0xA0000`**. For existing dual-boot devices, follow the safe procedure in section A.
+
+The full merged image contains the **ESP32 second-stage bootloader**, the **partition table**, and **Mesh Loader**. You do not need to flash those components separately. The chip's permanent ROM download bootloader is not replaced.
+
+### Advanced: Recreate the complete image yourself (optional, without compiling Meshtastic)
+
+
+The ready-made full image is available in the prerelease linked above. If you want to independently reproduce it, download two **public distribution binaries** into one folder (never use another device's flash readback as a release input):
 
 1. The `heltec-v4-full-merged.bin` from [clausefoto's Heltec V4 pre1 prerelease](https://github.com/clausefoto/mesh-loader/releases/tag/heltec-v4-mc1.18.0-mt2.8.1-pre1). This includes the ESP32 bootloader, Mesh Loader, partition table, Meshtastic 2.8.1 and its initial filesystem. Its *full-image* installation has not been independently hardware-tested by that maintainer.
 2. `heltec-v4-meshcore-v1.18.0-blefix-test1.bin` from [jangelor's BLE-fix prerelease](https://github.com/jangelor/mesh-loader/releases/tag/heltec-v4-blefix-test1). This is the MeshCore companion update.
@@ -128,31 +147,31 @@ Use the published `SHA256SUMS.txt` for **each** source release to verify downloa
 python scripts/compose_heltec_v4_fresh.py \
   --base /path/to/heltec-v4-full-merged.bin \
   --meshcore /path/to/heltec-v4-meshcore-v1.18.0-blefix-test1.bin \
-  --output /path/to/heltec-v4-full-dualboot-blefix-experimental.bin
+  --output /path/to/heltec-v4-full-dualboot-blefix-experimental-merged.bin
 ```
 
 On Windows PowerShell, put this on **one line** (or use PowerShell backticks for continuation):
 
 ```powershell
-python scripts/compose_heltec_v4_fresh.py --base .\heltec-v4-full-merged.bin --meshcore .\heltec-v4-meshcore-v1.18.0-blefix-test1.bin --output .\heltec-v4-full-dualboot-blefix-experimental.bin
+python scripts/compose_heltec_v4_fresh.py --base .\heltec-v4-full-merged.bin --meshcore .\heltec-v4-meshcore-v1.18.0-blefix-test1.bin --output .\heltec-v4-full-dualboot-blefix-experimental-merged.bin
 ```
 
 The script validates the **complete 16 MB** layout; ESP bootloader, Mesh Loader, and Meshtastic headers; blank initial NVS/OTA selection/MeshCore filesystem; checks the BLE-fix application SHA-256; replaces only the MeshCore `ota_0` slot; and generates a new checksum file. It does **not** flash hardware.
 
-### Flash the full image at address `0x0`
+### Alternative: flash the full image with esptool at address `0x0`
 
 Make the full private backup **first**, enter download mode, then (only on the spare/test device initially):
 
 **macOS/Linux:**
 
 ```sh
-python -m esptool --chip esp32s3 --port "$PORT" --baud 115200 write_flash 0x0 heltec-v4-full-dualboot-blefix-experimental.bin
+python -m esptool --chip esp32s3 --port "$PORT" --baud 115200 write_flash 0x0 heltec-v4-full-dualboot-blefix-experimental-merged.bin
 ```
 
 **Windows:**
 
 ```powershell
-python -m esptool --chip esp32s3 --port $Port --baud 115200 write_flash 0x0 heltec-v4-full-dualboot-blefix-experimental.bin
+python -m esptool --chip esp32s3 --port $Port --baud 115200 write_flash 0x0 heltec-v4-full-dualboot-blefix-experimental-merged.bin
 ```
 
 This full image **already includes** the ESP bootloader and factory Mesh Loader. Do **not** flash the application-only file at `0x0` or try to combine different firmware versions/partition layouts. The write can overwrite the entire 16 MB flash; previous identities and settings are not preserved.
