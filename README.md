@@ -1,4 +1,6 @@
 # Mesh Loader
+
+**Heltec V4 flashing guide:** [Fresh installation (ESP bootloader + Mesh Loader), safe upgrades, and recovery](docs/FLASHING_HELTEC_V4.md).
 "Dual Boot" firmware for running [Meshcore](https://meshcore.co.uk/) and [Meshtastic](https://meshtastic.org/) on a single Ep32 based device without re-flashing. 
 
 ## What Does it Do?
