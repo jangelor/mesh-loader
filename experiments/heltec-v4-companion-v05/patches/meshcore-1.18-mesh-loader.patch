@@ -1,0 +1,74 @@
+diff --git a/examples/companion_radio/main.cpp b/examples/companion_radio/main.cpp
+index 839d495..55165d1 100644
+--- a/examples/companion_radio/main.cpp
++++ b/examples/companion_radio/main.cpp
+@@ -1,2 +1,4 @@
+ #include <Arduino.h>   // needed for PlatformIO
++#include <esp_ota_ops.h>
++#include <esp_partition.h>
+ #include <Mesh.h>
+@@ -135,2 +137,10 @@ void halt() {
+ void setup() {
++#if defined(ESP32)
++  // Return to the factory Mesh Loader on the NEXT reset, not immediately.
++  const esp_partition_t* loader_partition = esp_partition_find_first(
++      ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, nullptr);
++  if (loader_partition != nullptr) {
++    esp_ota_set_boot_partition(loader_partition);
++  }
++#endif
+   Serial.begin(115200);
+@@ -180,3 +190,3 @@ void setup() {
+ #elif defined(ESP32)
+-  SPIFFS.begin(true);
++  SPIFFS.begin(true, "/spiffs", 10, "core_fs");
+   store.begin();
+diff --git a/src/OTAValidation.cpp b/src/OTAValidation.cpp
+new file mode 100644
+index 0000000..cf9a80d
+--- /dev/null
++++ b/src/OTAValidation.cpp
+@@ -0,0 +1,5 @@
++#include <Arduino.h>
++
++extern "C" bool verifyRollbackLater() {
++    return true;
++}
+diff --git a/src/helpers/ESP32Board.h b/src/helpers/ESP32Board.h
+index 3f95e69..b603ea0 100644
+--- a/src/helpers/ESP32Board.h
++++ b/src/helpers/ESP32Board.h
+@@ -27,2 +27,8 @@ public:
+   void begin() {
++    {
++      uint8_t baseMac[6];
++      esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
++      baseMac[5] = (baseMac[5] + 1) & 0xFF;
++      esp_base_mac_addr_set(baseMac);
++    }
+     // for future use, sub-classes SHOULD call this from their begin()
+diff --git a/src/helpers/esp32/SerialBLEInterface.cpp b/src/helpers/esp32/SerialBLEInterface.cpp
+index 6371cf3..bbf6cae 100644
+--- a/src/helpers/esp32/SerialBLEInterface.cpp
++++ b/src/helpers/esp32/SerialBLEInterface.cpp
+@@ -53,2 +53,20 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
+   pServer->getAdvertising()->addServiceUUID(SERVICE_UUID);
++
++  // Give MeshCore a separate, stable random-static BLE address.
++  uint8_t factory_mac[6];
++  if (esp_efuse_mac_get_default(factory_mac) == ESP_OK) {
++    esp_bd_addr_t meshcore_ble_addr;
++    memcpy(meshcore_ble_addr, factory_mac, 6);
++
++    // Mark this as a static random BLE address.
++    meshcore_ble_addr[0] = (meshcore_ble_addr[0] & 0x3F) | 0xC0;
++
++    // Make it distinct from the factory-derived BLE address.
++    meshcore_ble_addr[5] ^= 0xA5;
++
++    pServer->getAdvertising()->setDeviceAddress(
++        meshcore_ble_addr, BLE_ADDR_TYPE_RANDOM
++    );
++  }
++
+ }

@@ -244,7 +244,7 @@ def load_presets() -> list[str]:
     return msgs
 
 
-def do_build(root: Path, *, build: bool) -> Path:
+def do_build(root: Path, *, build: bool, ad_hoc_relay: bool = False) -> Path:
     v3 = load_v3()
     msgs = load_presets()
     submodule = root / "modules/meshcore"
@@ -254,24 +254,36 @@ def do_build(root: Path, *, build: bool) -> Path:
     if actual != UPSTREAM_SHA:
         raise RuntimeError(f"Unexpected MeshCore SHA {actual}. Need {UPSTREAM_SHA}. No source changes made")
     patch = root / "patches/meshcore/common.patch"
+    target_rel = TARGET_REL
+    output_name = OUTPUT_NAME
+    relay_patch = HERE / "patches/ad-hoc-relay.patch"
+    if ad_hoc_relay:
+        patch = HERE / "patches/meshcore-1.18-mesh-loader.patch"
+        target_rel += "-adhoc-relay"
+        output_name = "heltec-v4-companion-v05-adhoc-relay-dualboot-app-UNTESTED.bin"
     if not patch.exists():
         raise RuntimeError(f"Missing existing dual-boot patch {patch}")
-    target = root / TARGET_REL
+    target = root / target_rel
     manifest_data = {"feature":"heltec-companion-v05", "flavor":"dualboot", "upstream":UPSTREAM_SHA, "presets":msgs}
+    if ad_hoc_relay:
+        manifest_data["ad_hoc_relay"] = True
     manifest = target / ".companion-v05-manifest.json"
+    apply_patch = ["git", "apply", f"--directory={target_rel}"]
     if target.exists():
         if not manifest.is_file() or json.loads(manifest.read_text(encoding="utf-8")) != manifest_data:
             raise RuntimeError(f"Existing v0.5 folder differs: {target}; rename it before regenerating")
         if MARKER not in (target / "examples/companion_radio/ui-new/UITask.cpp").read_text(encoding="utf-8"):
             raise RuntimeError("v0.5 marker missing from existing prepared folder")
+        if ad_hoc_relay:
+            subprocess.run(apply_patch + ["--reverse", "--check", str(relay_patch)], cwd=root, check=True)
         print("Reusing prepared v0.5 source:", target)
     else:
         print("Copying pinned MeshCore source to isolated v0.5 build directory...")
         shutil.copytree(submodule, target, ignore=shutil.ignore_patterns(".git", ".pio", "__pycache__"))
         try:
             # Use the exact same loader return, BLE MAC and filesystem patches as v3.
-            subprocess.run(["git", "apply", "--check", f"--directory={TARGET_REL}", str(patch)], cwd=root, check=True)
-            subprocess.run(["git", "apply", f"--directory={TARGET_REL}", str(patch)], cwd=root, check=True)
+            subprocess.run(apply_patch + ["--check", str(patch)], cwd=root, check=True)
+            subprocess.run(apply_patch + [str(patch)], cwd=root, check=True)
             for p, marker in {
                 "examples/companion_radio/main.cpp": "esp_ota_set_boot_partition(loader_partition)",
                 "src/helpers/esp32/SerialBLEInterface.cpp": "setDeviceAddress("
@@ -282,6 +294,9 @@ def do_build(root: Path, *, build: bool) -> Path:
             v3.install_ui(target, msgs)
             v3.install_receive_replies(target)
             patch_v05_ui(target)
+            if ad_hoc_relay:
+                subprocess.run(apply_patch + ["--check", str(relay_patch)], cwd=root, check=True)
+                subprocess.run(apply_patch + [str(relay_patch)], cwd=root, check=True)
             manifest.write_text(json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8")
         except Exception:
             shutil.rmtree(target)
@@ -298,10 +313,10 @@ def do_build(root: Path, *, build: bool) -> Path:
             raise RuntimeError("Application exceeds dual-boot 3 MiB partition")
         dist = root / "build/companion-v05-dist"
         dist.mkdir(parents=True, exist_ok=True)
-        dest = dist / OUTPUT_NAME
+        dest = dist / output_name
         shutil.copy2(compiled, dest)
         checksum = hashlib.sha256(dest.read_bytes()).hexdigest()
-        (dist / (OUTPUT_NAME + ".sha256")).write_text(checksum + "  " + OUTPUT_NAME + "\n", encoding="ascii")
+        (dist / (output_name + ".sha256")).write_text(checksum + "  " + output_name + "\n", encoding="ascii")
         print("\nSUCCESS: compiled application-only firmware")
         print(dest)
         print("SHA256", checksum)
@@ -313,9 +328,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", type=Path, default=Path.home()/"mesh-loader-blefix")
     ap.add_argument("--build", action="store_true", help="Compile the MeshCore companion application")
+    ap.add_argument("--ad-hoc-relay", action="store_true", help="Include the OLED relay toggle in an isolated build")
     args = ap.parse_args()
     root = args.repo.expanduser().resolve()
-    do_build(root, build=args.build)
+    do_build(root, build=args.build, ad_hoc_relay=args.ad_hoc_relay)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,91 @@
+--- a/examples/companion_radio/MyMesh.h
++++ b/examples/companion_radio/MyMesh.h
+@@ -118,6 +118,8 @@
+   NodePrefs *getNodePrefs();
+   uint32_t getBLEPin();
+   void setBLEPin(uint32_t active_pin);
++  bool isAdHocRelayEnabled() const { return _ad_hoc_relay_enabled; }
++  void setAdHocRelayEnabled(bool enabled) { _ad_hoc_relay_enabled = enabled; }
+
+   void loop();
+   void handleCmdFrame(size_t len);
+@@ -217,6 +219,8 @@
+   bool hasPendingWork() const;
+
+ private:
++  bool _ad_hoc_relay_enabled = false;
++
+   void writeOKFrame();
+   void writeErrFrame(uint8_t err_code);
+   void writeDisabledFrame();
+--- a/examples/companion_radio/MyMesh.cpp
++++ b/examples/companion_radio/MyMesh.cpp
+@@ -503,7 +503,7 @@
+ }
+
+ bool MyMesh::allowPacketForward(const mesh::Packet* packet) {
+-  return _prefs.isRepeatEn();
++  return _ad_hoc_relay_enabled || _prefs.isRepeatEn();
+ }
+
+ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis) {
+--- a/examples/companion_radio/ui-new/UITask.cpp
++++ b/examples/companion_radio/ui-new/UITask.cpp
+@@ -241,6 +241,8 @@
+   uint8_t _page;
+   bool _quick_actions = false;
+   uint8_t _action_index = 0;
++  static constexpr uint8_t RELAY_ACTION = 5;
++  static constexpr uint8_t QUICK_ACTION_COUNT = 7;
+   // HELTEC_V4_COMPANION_V05_QUICK_ACTIONS
+   bool _shutdown_init;
+   AdvertPath recent[UI_RECENT_LIST_SIZE];
+@@ -382,11 +384,11 @@
+       display.setTextSize(1);
+       display.setColor(UIColor::title_txt);
+       display.drawTextCentered(display.width()/2, 0, "QUICK ACTIONS");
+-      static const char* labels[] = {
+-        "Inbox", "Quick Msgs", "Find repeaters", "Advertise", "Radio status", "Back"
++      const char* labels[QUICK_ACTION_COUNT] = {
++        "Inbox", "Quick Msgs", "Find repeaters", "Advertise", "Radio status",
++        the_mesh.isAdHocRelayEnabled() ? "Ad hoc relay ON" : "Ad hoc relay OFF", "Back"
+       };
+       int top = _action_index > 2 ? _action_index - 2 : 0;
+-      if (top > 3) top = 3;
+       for (int row = 0; row < 3; ++row) {
+         int i = top + row;
+         char line[30];
+@@ -426,6 +428,11 @@
+       } else {
+         display.fillRect(x, y, 2, 2);
+       }
++    }
++
++    if (the_mesh.isAdHocRelayEnabled()) {
++      display.setColor(UIColor::warning_txt);
++      display.drawTextLeftAlign(0, 12, "RLY");
+     }
+
+     if (_page == HomePage::FIRST) {
+@@ -716,7 +723,7 @@
+     if (_quick_actions) {
+       // A double-click/previous signal advances while inside this menu.
+       if (c == KEY_NEXT || c == KEY_RIGHT || c == KEY_PREV || c == KEY_LEFT) {
+-        _action_index = (_action_index + 1) % 6;
++        _action_index = (_action_index + 1) % QUICK_ACTION_COUNT;
+         return true;
+       }
+       if (c == KEY_ENTER) {
+@@ -742,6 +749,12 @@
+           case 4:
+             _page = HomePage::RADIO;
+             break;
++          case RELAY_ACTION: {
++            const bool enabled = !the_mesh.isAdHocRelayEnabled();
++            the_mesh.setAdHocRelayEnabled(enabled);
++            _task->showAlert(enabled ? "Ad hoc relay ON" : "Ad hoc relay OFF", 1200);
++            break;
++          }
+           default:
+             break;  // Back
+         }
